@@ -1,5 +1,7 @@
 name: Atualizar mapa de leilões
 
+# Roda toda segunda-feira às 06:00 no horário de Brasília (09:00 UTC).
+# O botão "Run workflow" na aba Actions dispara na hora, quando você quiser.
 on:
   schedule:
     - cron: "0 9 * * 1"
@@ -36,10 +38,15 @@ jobs:
 
       - name: Descobrir onde ficam os imóveis
         env:
+          # Se você cadastrar a chave em Settings > Secrets, o robô usa a HERE
+          # (rápida). Sem chave, ele cai no serviço gratuito do OpenStreetMap,
+          # a 4 consultas por minuto, como manda a política de uso deles.
           GEOCODER: ${{ secrets.HERE_API_KEY != '' && 'here' || 'osm' }}
           HERE_API_KEY: ${{ secrets.HERE_API_KEY }}
           CACHE_DIAS: "30"
-        run: python geocodificar.py --uf SP
+        run: |
+          python geocodificar.py --testar-chave
+          python geocodificar.py --uf SP
 
       - name: Montar o mapa
         run: |
