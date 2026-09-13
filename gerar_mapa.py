@@ -10,6 +10,7 @@ Sai o arquivo mapa_sp.html, que abre no navegador com clique duplo.
 """
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -88,13 +89,37 @@ def carregar():
     return recs, int(total_sp), data
 
 
+# Chave da CARTO, se houver. Sem ela o mapa usa a Esri, que não pede chave.
+# Atenção: esta chave NÃO é secreta — o navegador de quem abrir o mapa precisa
+# dela para pedir as imagens, então ela sempre aparece no HTML publicado.
+# É assim com qualquer chave de mapa de fundo. O que protege é o limite de uso,
+# não o sigilo.
+CARTO_KEY = os.environ.get("CARTO_KEY", "").strip()
+
+CAMADAS_CARTO = """const K='__CARTO_KEY__';
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key='+K,
+  {attribution:'&copy; OpenStreetMap &copy; CARTO', subdomains:'abcd',
+   maxZoom:19}).addTo(map);"""
+
+CAMADAS_ESRI = """const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
+L.tileLayer(ESRI+'World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+  {attribution:'Esri, HERE, Garmin, &copy; OpenStreetMap',maxZoom:16}).addTo(map);
+L.tileLayer(ESRI+'World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+  {maxZoom:16}).addTo(map);"""
+
+
 def gerar():
     recs, total_sp, data = carregar()
+    camadas = (CAMADAS_CARTO.replace("__CARTO_KEY__", CARTO_KEY)
+               if CARTO_KEY else CAMADAS_ESRI)
+    print("Mapa de fundo: " + ("CARTO (chave presente)" if CARTO_KEY
+                               else "Esri (sem chave da CARTO)"))
     html = (TEMPLATE
             .replace("__DADOS__", json.dumps(recs, ensure_ascii=False, allow_nan=False))
             .replace("__TOTAL_SP__", str(total_sp))
             .replace("__NO_MAPA__", str(len(recs)))
-            .replace("__DATA__", data))
+            .replace("__DATA__", data)
+            .replace("__CAMADAS_MAPA__", camadas))
     SAIDA.write_text(html, encoding="utf-8")
     print(f"{len(recs)} de {total_sp} imóveis de SP no mapa -> {SAIDA}")
     if len(recs) < total_sp:
@@ -373,8 +398,7 @@ const cor = v => v>=45?RAMPA[3] : v>=32?RAMPA[2] : v>=18?RAMPA[1] : RAMPA[0];
 
 const map=L.map('map',{zoomControl:false}).setView([-22.6,-48.4],7);
 L.control.zoom({position:'topright'}).addTo(map);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-  {attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:19}).addTo(map);
+__CAMADAS_MAPA__
 const camada=L.layerGroup().addTo(map);
 const el=id=>document.getElementById(id);
 
