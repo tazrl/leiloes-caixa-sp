@@ -283,8 +283,19 @@ def main():
         df = df[alvo == args.regiao]
 
     if args.refazer_imprecisos:
-        n = con.execute("""DELETE FROM coordenadas
-                           WHERE precisao IN ('bairro','cidade','nao_encontrado')""").rowcount
+        # Apaga SÓ os imóveis que passaram pelos filtros desta rodada.
+        # Antes isso varria o país inteiro e derrubava coordenadas de
+        # estados que nem estavam sendo processados.
+        alvos = df.id_imovel.tolist()
+        n = 0
+        for i in range(0, len(alvos), 500):          # SQLite limita os "?"
+            lote = alvos[i:i + 500]
+            marcas = ",".join("?" * len(lote))
+            n += con.execute(
+                f"""DELETE FROM coordenadas
+                    WHERE id_imovel IN ({marcas})
+                      AND precisao IN ('bairro','cidade','nao_encontrado')""",
+                lote).rowcount
         con.commit()
         print(f"Vou tentar de novo {n} imóveis que tinham posição imprecisa.\n")
 
@@ -297,9 +308,12 @@ def main():
         print("Nada novo para localizar. Tudo já está no mapa.")
         return
 
+    usando_here = PROVEDOR == "here" and CHAVE_HERE
+    pausa = PAUSA_HERE if usando_here else PAUSA_OSM
+    minutos = len(df) * 1.3 * pausa / 60
     print(f"{len(df)} imóveis a localizar. "
-          f"Como o mapa gratuito aceita 1 consulta por segundo, "
-          f"isso leva no máximo ~{len(df)*PAUSA/60:.0f} min "
+          f"No ritmo do serviço em uso, isso leva no máximo "
+          f"{'~%.0f min' % minutos if minutos >= 1 else 'menos de 1 min'} "
           f"(bem menos, porque endereços repetidos já ficam no cache).\n")
 
     contagem = dict.fromkeys(NIVEIS + ["nao_encontrado"], 0)
