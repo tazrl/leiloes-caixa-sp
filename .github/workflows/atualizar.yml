@@ -6,6 +6,11 @@ on:
   schedule:
     - cron: "0 9 * * 1"
   workflow_dispatch:
+    inputs:
+      refazer_imprecisos:
+        description: "Tentar de novo os imóveis com posição imprecisa (bairro ou cidade)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -46,7 +51,11 @@ jobs:
           CACHE_DIAS: "30"
         run: |
           python geocodificar.py --testar-chave
-          python geocodificar.py --uf SP
+          if [ "${{ inputs.refazer_imprecisos }}" = "true" ]; then
+            python geocodificar.py --uf SP --refazer-imprecisos
+          else
+            python geocodificar.py --uf SP
+          fi
 
       - name: Montar o mapa
         run: |
