@@ -58,6 +58,11 @@ jobs:
           fi
 
       - name: Montar o mapa
+        env:
+          # Chave do mapa de fundo. Diferente da HERE, esta acaba visível no
+          # HTML publicado — o navegador de quem abre o mapa precisa dela.
+          # Fica no secret mesmo assim, para sair do código e facilitar a troca.
+          CARTO_KEY: ${{ secrets.CARTO_KEY }}
         run: |
           python gerar_mapa.py
           mkdir -p site
