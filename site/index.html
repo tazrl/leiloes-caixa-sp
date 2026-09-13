@@ -269,8 +269,10 @@ const cor = v => v>=45?RAMPA[3] : v>=32?RAMPA[2] : v>=18?RAMPA[1] : RAMPA[0];
 
 const map=L.map('map',{zoomControl:false}).setView([-22.6,-48.4],7);
 L.control.zoom({position:'topright'}).addTo(map);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-  {attribution:'&copy; OpenStreetMap &copy; CARTO',maxZoom:19}).addTo(map);
+const K='cb1_3jl2_1_8cde1d2338ae4ba802346cdc';
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key='+K,
+  {attribution:'&copy; OpenStreetMap &copy; CARTO', subdomains:'abcd',
+   maxZoom:19}).addTo(map);
 const camada=L.layerGroup().addTo(map);
 const el=id=>document.getElementById(id);
 
