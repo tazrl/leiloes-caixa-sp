@@ -123,6 +123,8 @@ Cada execução fica registrada na aba **Actions**, com o log completo.
 | `regioes.py` | Classifica por região metropolitana e distrito |
 | `custos.py` | Calcula custo total e preço de equilíbrio |
 | `gerar_mapa.py` | Monta a página final |
+| `distritos_sp.geojson` | Limites dos 96 distritos da capital |
+| `mun_sp_raw.geojson` | Limites dos municípios de SP (IBGE) |
 | `imoveis_caixa.db` | O banco, com o cache de coordenadas |
 | `site/index.html` | O mapa publicado |
 

@@ -16,11 +16,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from regioes import classificar
+from regioes import classificar, ARQ_IBGE
 
 PASTA = Path(__file__).parent
 BANCO = PASTA / "imoveis_caixa.db"
 SAIDA = PASTA / "mapa_sp.html"
+ARQ_DISTRITOS = PASTA / "distritos_sp.geojson"
+ARQ_MUNICIPIOS = PASTA / "mun_sp_raw.geojson"
 
 
 def _limpo(v):
@@ -97,15 +99,82 @@ def carregar():
 CARTO_KEY = os.environ.get("CARTO_KEY", "").strip()
 
 CAMADAS_CARTO = """const K='__CARTO_KEY__';
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key='+K,
-  {attribution:'&copy; OpenStreetMap &copy; CARTO', subdomains:'abcd',
-   maxZoom:19}).addTo(map);"""
+const cartoAttr='&copy; OpenStreetMap &copy; CARTO';
+const BASES={
+  'Claro':      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key='+K,
+                  {attribution:cartoAttr,subdomains:'abcd',maxZoom:19}),
+  'Escuro':     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key='+K,
+                  {attribution:cartoAttr,subdomains:'abcd',maxZoom:19}),
+  'Detalhado':  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key='+K,
+                  {attribution:cartoAttr,subdomains:'abcd',maxZoom:19}),
+  'Ruas':       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  {attribution:'&copy; OpenStreetMap',maxZoom:19}),
+  'Satélite':   L.layerGroup([
+                  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                    {attribution:'Esri, Maxar, Earthstar Geographics',maxZoom:19}),
+                  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png?key='+K,
+                    {subdomains:'abcd',maxZoom:19})]),
+};
+const BASE_INICIAL='Claro';"""
 
-CAMADAS_ESRI = """const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/';
-L.tileLayer(ESRI+'World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-  {attribution:'Esri, HERE, Garmin, &copy; OpenStreetMap',maxZoom:16}).addTo(map);
-L.tileLayer(ESRI+'World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
-  {maxZoom:16}).addTo(map);"""
+CAMADAS_ESRI = """const ESRI='https://server.arcgisonline.com/ArcGIS/rest/services/';
+const BASES={
+  'Claro': L.layerGroup([
+      L.tileLayer(ESRI+'Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+        {attribution:'Esri, HERE, Garmin, &copy; OpenStreetMap',maxZoom:16}),
+      L.tileLayer(ESRI+'Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+        {maxZoom:16})]),
+  'Ruas': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {attribution:'&copy; OpenStreetMap',maxZoom:19}),
+  'Satélite': L.layerGroup([
+      L.tileLayer(ESRI+'World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        {attribution:'Esri, Maxar, Earthstar Geographics',maxZoom:19}),
+      L.tileLayer(ESRI+'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+        {maxZoom:19})]),
+};
+const BASE_INICIAL='Claro';"""
+
+
+def contornos(recs):
+    """Monta os limites das regiões que aparecem no mapa.
+
+    Só entram as que têm imóvel — desenhar os 645 municípios do estado
+    deixaria a página pesada sem servir para nada. Os contornos são
+    simplificados: perdem alguns metros de precisão e ganham megabytes.
+    """
+    import re
+    from shapely.geometry import shape, mapping
+
+    presentes = {r["reg"] for r in recs}
+    capital = {r["reg"] for r in recs if r["ci"] == "Sao Paulo"}
+    feats = []
+
+    if ARQ_DISTRITOS.exists():
+        g = json.loads(ARQ_DISTRITOS.read_text(encoding="utf-8"))
+        for f in g["features"]:
+            nome = f["properties"]["ds_nome"].title()
+            if nome in capital:
+                geo = shape(f["geometry"]).simplify(0.0002, preserve_topology=True)
+                feats.append({"type": "Feature", "properties": {"d": nome},
+                              "geometry": mapping(geo)})
+
+    if ARQ_MUNICIPIOS.exists():
+        nomes = {m["id"]: _titulo(m["nome"])
+                 for m in json.loads(ARQ_IBGE.read_text(encoding="utf-8"))}
+        g = json.loads(ARQ_MUNICIPIOS.read_text(encoding="utf-8"))
+        for f in g["features"]:
+            nome = nomes.get(int(f["properties"]["codarea"]))
+            if nome and nome in presentes and nome not in capital:
+                geo = shape(f["geometry"]).simplify(0.002, preserve_topology=True)
+                feats.append({"type": "Feature", "properties": {"d": nome},
+                              "geometry": mapping(geo)})
+
+    txt = json.dumps({"type": "FeatureCollection", "features": feats},
+                     ensure_ascii=False)
+    # 4 casas decimais bastam (~10 m) e cortam o arquivo pela metade
+    txt = re.sub(r"(\d+\.\d{4})\d+", r"\1", txt)
+    print(f"Contornos: {len(feats)} regiões, {round(len(txt)/1024)} KB")
+    return txt
 
 
 def gerar():
@@ -119,7 +188,8 @@ def gerar():
             .replace("__TOTAL_SP__", str(total_sp))
             .replace("__NO_MAPA__", str(len(recs)))
             .replace("__DATA__", data)
-            .replace("__CAMADAS_MAPA__", camadas))
+            .replace("__CAMADAS_MAPA__", camadas)
+            .replace("__CONTORNOS__", contornos(recs)))
     SAIDA.write_text(html, encoding="utf-8")
     print(f"{len(recs)} de {total_sp} imóveis de SP no mapa -> {SAIDA}")
     if len(recs) < total_sp:
@@ -399,7 +469,49 @@ const cor = v => v>=45?RAMPA[3] : v>=32?RAMPA[2] : v>=18?RAMPA[1] : RAMPA[0];
 const map=L.map('map',{zoomControl:false}).setView([-22.6,-48.4],7);
 L.control.zoom({position:'topright'}).addTo(map);
 __CAMADAS_MAPA__
+BASES[BASE_INICIAL].addTo(map);
+
 const camada=L.layerGroup().addTo(map);
+
+/* Limites das regiões. Ficam abaixo dos pontos, num plano próprio. */
+const CONTORNOS = __CONTORNOS__;
+map.createPane('regioes');
+map.getPane('regioes').style.zIndex = 350;
+
+let camadaRegioes = null, medianasRegiao = {};
+
+const contornoLayer = L.geoJSON(CONTORNOS, {
+  pane:'regioes',
+  style: f => estiloRegiao(f.properties.d),
+  onEachFeature: (f, l) => {
+    const nome = f.properties.d;
+    l.on('mouseover', () => {
+      const m = medianasRegiao[nome];
+      l.bindTooltip(nome + (m===undefined ? ' · sem imóveis no filtro'
+                    : ' · ' + m.toFixed(0) + '% de desconto'),
+                    {sticky:true}).openTooltip();
+      l.setStyle({weight:2.5, opacity:.9});
+    });
+    l.on('mouseout', () => l.setStyle(estiloRegiao(nome)));
+    /* clicar na região é o mesmo que clicar na linha do ranking */
+    l.on('click', () => {
+      est.regiao = est.regiao === nome ? null : nome;
+      pintar(true);
+    });
+  }
+}).addTo(map);
+
+function estiloRegiao(nome){
+  const m = medianasRegiao[nome];
+  const escolhida = est.regiao === nome;
+  if(m === undefined)
+    return {color:'#7A8A80', weight:1, opacity:.45, fill:false};
+  return {color: escolhida ? '#1F5D50' : '#16232A',
+          weight: escolhida ? 3 : 1,
+          opacity: escolhida ? 1 : .5,
+          fill:true, fillColor:cor(m),
+          fillOpacity: escolhida ? .62 : .38};
+}
 const el=id=>document.getElementById(id);
 
 [...new Set(DADOS.map(d=>d.rm))].sort().forEach(r=>
@@ -565,6 +677,12 @@ function pintar(reenquadrar){
   const base=filtrados(false);   /* o ranking ignora a região escolhida */
   const v=filtrados(true);       /* o mapa respeita */
   desenharRanking(base);
+
+  /* a cor de cada região acompanha os filtros, igual ao ranking */
+  medianasRegiao = {};
+  ranking(base).forEach(r => { medianasRegiao[r.nome] = r.desc; });
+  if(contornoLayer) contornoLayer.setStyle(f => estiloRegiao(f.properties.d));
+
   camada.clearLayers();
 
   const grupos=new Map();
@@ -614,6 +732,9 @@ function pintar(reenquadrar){
 
   if(pts.length && (reenquadrar||est.regiao)) map.fitBounds(pts,{padding:[46,46],maxZoom:15});
 }
+
+L.control.layers(BASES, {'Limites das regiões': contornoLayer},
+                 {position:'topright', collapsed:true}).addTo(map);
 
 el('fonte').textContent = NO_MAPA+' de '+TOTAL_SP+' imóveis localizados'+
   (DATA?' · lista da Caixa de '+DATA.split('-').reverse().join('/'):'');
