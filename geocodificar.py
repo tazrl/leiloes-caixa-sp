@@ -197,9 +197,34 @@ def main():
     ap.add_argument("--limite", type=int, help="Máximo de imóveis nesta rodada")
     ap.add_argument("--refazer-imprecisos", action="store_true",
                     help="Tenta de novo os que só acharam bairro ou cidade")
+    ap.add_argument("--testar-chave", action="store_true",
+                    help="Faz uma consulta de teste e diz qual serviço respondeu")
     args = ap.parse_args()
 
+    # Deixa claro, no log, qual serviço está em uso. Sem isso não dá para
+    # saber se a chave da HERE pegou ou não.
+    if PROVEDOR == "here" and CHAVE_HERE:
+        print(f"Serviço de mapas: HERE (chave com {len(CHAVE_HERE)} caracteres), "
+              f"{PAUSA_HERE}s entre consultas")
+    elif PROVEDOR == "here":
+        print("ATENÇÃO: pedi HERE, mas a chave HERE_API_KEY chegou vazia. "
+              "Vou usar o OpenStreetMap.")
+    else:
+        print(f"Serviço de mapas: OpenStreetMap gratuito, "
+              f"{PAUSA_OSM}s entre consultas")
+
     con = preparar_banco()
+
+    if args.testar_chave:
+        alvo = "Avenida Paulista, 1578, Sao Paulo, SP, Brasil"
+        con.execute("DELETE FROM geocache WHERE consulta=?", (alvo,))
+        con.commit()
+        r = _consultar_mapa(con, alvo)
+        print(f"Consulta de teste: {alvo}")
+        print(f"Resposta: {r}" if r
+              else "Resposta: nada. Se você esperava a HERE, confira a chave.")
+        con.close()
+        return
 
     sql = "SELECT * FROM imoveis WHERE 1=1"
     par = []
