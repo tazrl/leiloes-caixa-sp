@@ -64,6 +64,20 @@ NIVEIS = ["numero", "logradouro", "bairro", "cidade"]
 TIPOS_EXATOS = {"houseNumber", "house_number", "address", "building",
                 "ROOFTOP", "RANGE_INTERPOLATED"}
 
+# O que costuma estar por trás de cada recusa da HERE.
+DICAS_HERE = {
+    401: ("A chave foi rejeitada. Duas causas comuns, nesta ordem:\n"
+          "  1. O app não está ligado a um projeto com o serviço "
+          "'Geocoding & Search' habilitado. No portal da HERE, abra "
+          "Projects Manager, entre no seu projeto e adicione esse serviço.\n"
+          "  2. A chave foi colada com espaço ou quebra de linha junto. "
+          "Refaça o secret no GitHub colando sem espaços nas pontas."),
+    403: ("Acesso negado. Em geral é 'Trusted Domains' configurado no app: "
+          "o robô roda num servidor, sem domínio, então essa restrição "
+          "precisa ficar vazia."),
+    429: "Passou do limite diário do plano gratuito. Tente amanhã.",
+}
+
 
 # ---------------------------------------------------------------- cache
 
@@ -216,13 +230,38 @@ def main():
     con = preparar_banco()
 
     if args.testar_chave:
+        # Aqui a consulta é feita "na mão", sem cache e sem engolir erro,
+        # justamente para mostrar a mensagem exata do serviço.
         alvo = "Avenida Paulista, 1578, Sao Paulo, SP, Brasil"
-        con.execute("DELETE FROM geocache WHERE consulta=?", (alvo,))
-        con.commit()
-        r = _consultar_mapa(con, alvo)
         print(f"Consulta de teste: {alvo}")
-        print(f"Resposta: {r}" if r
-              else "Resposta: nada. Se você esperava a HERE, confira a chave.")
+        try:
+            if PROVEDOR == "here" and CHAVE_HERE:
+                r = cr.get(HERE_URL,
+                           params={"q": alvo, "in": "countryCode:BRA",
+                                   "limit": 1, "apiKey": CHAVE_HERE},
+                           headers=UA, timeout=30)
+                print(f"HTTP {r.status_code}")
+                if r.status_code == 200:
+                    itens = (r.json().get("items") or [])
+                    if itens:
+                        p_ = itens[0]["position"]
+                        print(f"OK: {p_['lat']}, {p_['lng']} "
+                              f"({itens[0].get('resultType')})")
+                    else:
+                        print("Respondeu 200 mas sem resultado. "
+                              "Endereço não encontrado — a chave está boa.")
+                else:
+                    print(f"Recusado. Resposta do serviço: {r.text[:300]}")
+                    print(DICAS_HERE.get(r.status_code, ""))
+            else:
+                # apaga do cache primeiro, senão o teste lê resposta velha
+                con.execute("DELETE FROM geocache WHERE consulta=?", (alvo,))
+                con.commit()
+                r = _consultar_mapa(con, alvo)
+                print(f"OK: {r[0]}, {r[1]}" if r
+                      else "Sem resultado pelo OpenStreetMap.")
+        except Exception as e:
+            print(f"Falha na conexão: {e}")
         con.close()
         return
 
